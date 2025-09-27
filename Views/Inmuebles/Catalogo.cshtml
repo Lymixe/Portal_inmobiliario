@@ -1,4 +1,4 @@
-@model IEnumerable<Portal_inmobiliario.Models.Inmueble>
+@model Portal_inmobiliario.ViewModels.CatalogoViewModel
 
 @{
     ViewData["Title"] = "Catálogo de Inmuebles";
@@ -7,8 +7,53 @@
 <h1>@ViewData["Title"]</h1>
 <hr />
 
+<!-- Formulario de Filtros -->
+<div class="card mb-4">
+    <div class="card-header">Filtros de Búsqueda</div>
+    <div class="card-body">
+        <form asp-action="Catalogo" method="get">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label asp-for="Ciudad" class="form-label"></label>
+                    <input asp-for="Ciudad" class="form-control" />
+                </div>
+                <div class="col-md-3">
+                    <label asp-for="Tipo" class="form-label"></label>
+                    <select asp-for="Tipo" asp-items="Html.GetEnumSelectList<Portal_inmobiliario.Models.TipoInmueble>()" class="form-select">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label asp-for="Dormitorios" class="form-label">Dormitorios (mín.)</label>
+                    <input asp-for="Dormitorios" type="number" class="form-control" min="0" />
+                    <span asp-validation-for="Dormitorios" class="text-danger"></span>
+                </div>
+                <div class="col-md-2">
+                    <label asp-for="PrecioMin" class="form-label">Precio Mín.</label>
+                    <input asp-for="PrecioMin" type="number" class="form-control" min="0" step="1000" />
+                    <span asp-validation-for="PrecioMin" class="text-danger"></span>
+                </div>
+                <div class="col-md-2">
+                    <label asp-for="PrecioMax" class="form-label">Precio Máx.</label>
+                    <input asp-for="PrecioMax" type="number" class="form-control" min="0" step="1000" />
+                    <span asp-validation-for="PrecioMax" class="text-danger"></span>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12 text-end">
+                    <a asp-action="Catalogo" class="btn btn-secondary">Limpiar Filtros</a>
+                    <button type="submit" class="btn btn-primary">Buscar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- Listado de Inmuebles -->
 <div class="row">
-    @foreach (var item in Model)
+    @foreach (var item in Model.Inmuebles)
     {
         <div class="col-md-4 mb-4">
             <div class="card h-100">
@@ -18,7 +63,8 @@
                     <p class="card-text">
                         <strong>Ciudad:</strong> @item.Ciudad<br>
                         <strong>Tipo:</strong> @item.Tipo<br>
-                        <strong>Precio:</strong> @item.Precio.ToString("C")
+                        <strong>Precio:</strong> @item.Precio.ToString("C")<br>
+                        <strong>Dormitorios:</strong> @item.Dormitorios
                     </p>
                 </div>
                 <div class="card-footer text-center">
@@ -28,3 +74,25 @@
         </div>
     }
 </div>
+
+<!-- Paginación -->
+@if (Model.TotalPaginas > 1)
+{
+    <nav>
+        <ul class="pagination justify-content-center">
+            @for (int i = 1; i <= Model.TotalPaginas; i++)
+            {
+                <li class="page-item @(i == Model.PaginaActual ? "active" : "")">
+                    <a class="page-link" 
+                       asp-action="Catalogo" 
+                       asp-route-pagina="@i"
+                       asp-route-Ciudad="@Model.Ciudad"
+                       asp-route-Tipo="@Model.Tipo"
+                       asp-route-Dormitorios="@Model.Dormitorios"
+                       asp-route-PrecioMin="@Model.PrecioMin"
+                       asp-route-PrecioMax="@Model.PrecioMax">@i</a>
+                </li>
+            }
+        </ul>
+    </nav>
+}
