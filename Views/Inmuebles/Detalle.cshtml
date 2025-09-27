@@ -1,15 +1,27 @@
 @model Portal_inmobiliario.Models.Inmueble
+@using Portal_inmobiliario.ViewModels
 
 @{
     ViewData["Title"] = Model.Titulo;
+    var visitaViewModel = ViewBag.VisitaViewModel as AgendarVisitaViewModel ?? new AgendarVisitaViewModel();
 }
 
 <h1>@Model.Titulo</h1>
 <hr />
 
+@if (TempData["MensajeExito"] != null)
+{
+    <div class="alert alert-success">@TempData["MensajeExito"]</div>
+}
+@if (TempData["MensajeError"] != null)
+{
+    <div class="alert alert-danger">@TempData["MensajeError"]</div>
+}
+
+
 <div class="row">
     <div class="col-md-8">
-        <img src="@(Model.Imagen ?? "/images/default.jpg")" class="img-fluid rounded" alt="@Model.Titulo">
+        <img src="@(Model.Imagen ?? "/images/default.jpg")" class="img-fluid rounded mb-3" alt="@Model.Titulo">
     </div>
     <div class="col-md-4">
         <div class="card">
@@ -25,15 +37,64 @@
                     <li class="list-group-item"><strong>Baños:</strong> @Model.Banos</li>
                 </ul>
             </div>
-            <div class="card-footer text-center">
-                <!-- Este botón será implementado en la Pregunta 3 -->
-                <a class="btn btn-success btn-lg">Agendar Visita</a>
+            <div class="card-footer text-center d-grid gap-2">
+                <button type="button" class="btn btn-success btn-lg" data-bs-toggle="modal" data-bs-target="#agendarVisitaModal">
+                    Agendar Visita
+                </button>
+
+                @if (!(bool)ViewBag.TieneReservaActiva)
+                {
+                    <form asp-action="Reservar" method="post" class="d-grid">
+                        <input type="hidden" name="inmuebleId" value="@Model.Id" />
+                        <button type="submit" class="btn btn-warning btn-lg">Reservar Ahora (48h)</button>
+                    </form>
+                }
+                else
+                {
+                    <button class="btn btn-secondary btn-lg" disabled>Reservado</button>
+                }
             </div>
         </div>
     </div>
 </div>
 
-
 <div class="mt-4">
     <a asp-action="Catalogo">Volver al Catálogo</a>
-</div> 
+</div>
+
+
+<div class="modal fade" id="agendarVisitaModal" tabindex="-1" aria-labelledby="agendarVisitaModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form asp-action="AgendarVisita" method="post">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="agendarVisitaModalLabel">Agendar visita para: @visitaViewModel.InmuebleTitulo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <input type="hidden" asp-for="@visitaViewModel.InmuebleId" />
+                    
+                    <div class="mb-3">
+                        <label asp-for="@visitaViewModel.FechaInicio" class="form-label"></label>
+                        <input asp-for="@visitaViewModel.FechaInicio" type="datetime-local" class="form-control" />
+                        <span asp-validation-for="@visitaViewModel.FechaInicio" class="text-danger"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label asp-for="@visitaViewModel.FechaFin" class="form-label"></label>
+                        <input asp-for="@visitaViewModel.FechaFin" type="datetime-local" class="form-control" />
+                        <span asp-validation-for="@visitaViewModel.FechaFin" class="text-danger"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label asp-for="@visitaViewModel.Notas" class="form-label"></label>
+                        <textarea asp-for="@visitaViewModel.Notas" class="form-control" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-primary">Solicitar Visita</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
