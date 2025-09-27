@@ -1,0 +1,30 @@
+@model IEnumerable<Portal_inmobiliario.Models.Inmueble>
+
+@{
+    ViewData["Title"] = "Catálogo de Inmuebles";
+}
+
+<h1>@ViewData["Title"]</h1>
+<hr />
+
+<div class="row">
+    @foreach (var item in Model)
+    {
+        <div class="col-md-4 mb-4">
+            <div class="card h-100">
+                <img src="@(item.Imagen ?? "/images/default.jpg")" class="card-img-top" alt="@item.Titulo" style="height: 200px; object-fit: cover;">
+                <div class="card-body">
+                    <h5 class="card-title">@item.Titulo</h5>
+                    <p class="card-text">
+                        <strong>Ciudad:</strong> @item.Ciudad<br>
+                        <strong>Tipo:</strong> @item.Tipo<br>
+                        <strong>Precio:</strong> @item.Precio.ToString("C")
+                    </p>
+                </div>
+                <div class="card-footer text-center">
+                    <a asp-action="Detalle" asp-route-id="@item.Id" class="btn btn-primary">Ver Detalles</a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
