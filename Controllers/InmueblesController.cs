@@ -1,40 +1,34 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Portal_inmobiliario.Data; // Asegúrate que el namespace sea el correcto de tu proyecto
+using Portal_inmobiliario.Data;
 using Portal_inmobiliario.Models;
-using Portal_inmobiliario.ViewModels; // Asegúrate que el namespace sea el correcto de tu proyecto
-using System.Linq;
-using System.Threading.Tasks;
+using Portal_inmobiliario.ViewModels;
+using System.Security.Claims;
 
-namespace Portal_inmobiliario.Controllers // Asegúrate que el namespace sea el correcto de tu proyecto
+namespace Portal_inmobiliario.Controllers
 {
     public class InmueblesController : Controller
     {
         private readonly ApplicationDbContext _context;
+        private readonly UserManager<IdentityUser> _userManager;
 
-        // El DbContext se inyecta a través del constructor (Inyección de Dependencias)
-        public InmueblesController(ApplicationDbContext context)
+        public InmueblesController(ApplicationDbContext context, UserManager<IdentityUser> userManager)
         {
             _context = context;
+            _userManager = userManager;
         }
 
-        // GET: Inmuebles
-        // Redirige a la acción principal que es el catálogo
         public IActionResult Index()
         {
             return RedirectToAction("Catalogo");
         }
 
-        // GET: Inmuebles/Catalogo?Ciudad=Madrid&Tipo=Casa...
-        // Esta es la acción principal que filtra, valida y pagina los resultados
         public async Task<IActionResult> Catalogo([FromQuery] CatalogoViewModel viewModel, int pagina = 1)
         {
-            // --- 1. Lógica de Consulta Dinámica ---
-            // Empezamos con una consulta base IQueryable. Esto es muy eficiente porque
-            // no se ejecuta en la BD hasta el final.
             IQueryable<Inmueble> query = _context.Inmuebles.Where(i => i.Activo);
 
-            // Aplicamos los filtros solo si tienen un valor
             if (!string.IsNullOrEmpty(viewModel.Ciudad))
             {
                 query = query.Where(i => i.Ciudad.Contains(viewModel.Ciudad));
@@ -60,57 +54,150 @@ namespace Portal_inmobiliario.Controllers // Asegúrate que el namespace sea el 
                 query = query.Where(i => i.Dormitorios >= viewModel.Dormitorios.Value);
             }
 
-            // --- 2. Validación Server-Side ---
-            // Las validaciones de [Range] en el ViewModel se verifican automáticamente.
-            // Aquí añadimos nuestra validación personalizada.
             if (viewModel.PrecioMin.HasValue && viewModel.PrecioMax.HasValue && viewModel.PrecioMin > viewModel.PrecioMax)
             {
                 ModelState.AddModelError(nameof(viewModel.PrecioMin), "El precio mínimo no puede ser mayor que el precio máximo.");
             }
 
-            // Si el modelo no es válido (por los [Range] o por nuestra regla personalizada)...
             if (!ModelState.IsValid)
             {
-                // Devolvemos la vista con los datos que el usuario ingresó y los mensajes de error.
-                // Es importante poner una lista de inmuebles vacía para no mostrar resultados de una búsqueda inválida.
                 viewModel.Inmuebles = new List<Inmueble>();
                 return View(viewModel);
             }
 
-            // --- 3. Lógica de Paginación ---
-            const int tamanoPagina = 6; // Mostramos 6 inmuebles por página
+            const int tamanoPagina = 6;
             var totalInmuebles = await query.CountAsync();
 
             viewModel.TotalPaginas = (int)Math.Ceiling(totalInmuebles / (double)tamanoPagina);
             viewModel.PaginaActual = pagina;
 
-            // Ahora sí, ejecutamos la consulta en la base de datos aplicando paginación
             viewModel.Inmuebles = await query
                 .Skip((pagina - 1) * tamanoPagina)
                 .Take(tamanoPagina)
                 .ToListAsync();
 
-            // Devolvemos la vista con el ViewModel completo (filtros + resultados paginados)
             return View(viewModel);
         }
-        
-        // GET: Inmuebles/Detalle/5
-        // Muestra la página de detalles de un solo inmueble
+
         public async Task<IActionResult> Detalle(int? id)
         {
-            if (id == null)
-            {
-                return NotFound();
-            }
-
+            if (id == null) return NotFound();
+            
             var inmueble = await _context.Inmuebles.FirstOrDefaultAsync(m => m.Id == id);
             
-            if (inmueble == null)
+            if (inmueble == null) return NotFound();
+
+            ViewBag.TieneReservaActiva = await _context.Reservas
+                .AnyAsync(r => r.InmuebleId == id && r.FechaExpiracion > DateTime.UtcNow);
+
+            var visitaViewModel = new AgendarVisitaViewModel
             {
-                return NotFound();
-            }
+                InmuebleId = inmueble.Id,
+                InmuebleTitulo = inmueble.Titulo,
+                FechaInicio = DateTime.Now.Date.AddHours(9),
+                FechaFin = DateTime.Now.Date.AddHours(10)
+            };
+            ViewBag.VisitaViewModel = visitaViewModel;
 
             return View(inmueble);
+        }
+
+        [HttpPost]
+        [Authorize]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> AgendarVisita(AgendarVisitaViewModel model)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (userId == null) return Unauthorized();
+
+            // --- CAMBIO 1: CARGAR Y VALIDAR EL INMUEBLE AL PRINCIPIO ---
+            var inmueble = await _context.Inmuebles.FindAsync(model.InmuebleId);
+            if (inmueble == null)
+            {
+                TempData["MensajeError"] = "El inmueble que intentaba visitar ya no existe.";
+                return RedirectToAction("Catalogo");
+            }
+
+            if (model.FechaInicio >= model.FechaFin)
+            {
+                ModelState.AddModelError(nameof(model.FechaInicio), "La fecha de inicio debe ser anterior a la fecha de fin.");
+            }
+
+            var horaInicio = model.FechaInicio.TimeOfDay;
+            var horaFin = model.FechaFin.TimeOfDay;
+            if (horaInicio < new TimeSpan(8, 0, 0) || horaFin > new TimeSpan(19, 0, 0))
+            {
+                ModelState.AddModelError(nameof(model.FechaInicio), "Las visitas solo pueden ser entre las 08:00 y las 19:00.");
+            }
+            
+            var haySolapamiento = await _context.Visitas
+                .AnyAsync(v => v.InmuebleId == model.InmuebleId &&
+                               v.Estado != EstadoVisita.Cancelada &&
+                               v.FechaInicio < model.FechaFin &&
+                               v.FechaFin > model.FechaInicio);
+
+            if (haySolapamiento)
+            {
+                ModelState.AddModelError("", "El horario seleccionado ya no está disponible. Por favor, elija otro.");
+            }
+
+            // --- CAMBIO 2: EL BLOQUE DE ERROR AHORA ES MÁS SEGURO ---
+            if (!ModelState.IsValid)
+            {
+                TempData["MensajeError"] = "No se pudo agendar la visita. Por favor, revise los errores.";
+                ViewBag.TieneReservaActiva = await _context.Reservas.AnyAsync(r => r.InmuebleId == model.InmuebleId && r.FechaExpiracion > DateTime.UtcNow);
+                ViewBag.VisitaViewModel = model; 
+                // Reutilizamos la variable 'inmueble' que ya sabemos que no es null.
+                return View("Detalle", inmueble);
+            }
+
+            var visita = new Visita
+            {
+                InmuebleId = model.InmuebleId,
+                UsuarioId = userId,
+                FechaInicio = model.FechaInicio,
+                FechaFin = model.FechaFin,
+                Notas = model.Notas,
+                Estado = EstadoVisita.Solicitada
+            };
+
+            _context.Add(visita);
+            await _context.SaveChangesAsync();
+
+            TempData["MensajeExito"] = "¡Visita agendada correctamente! Un asesor la confirmará pronto.";
+            return RedirectToAction("Detalle", new { id = model.InmuebleId });
+        }
+
+        [HttpPost]
+        [Authorize]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Reservar(int inmuebleId)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (userId == null) return Unauthorized();
+
+            var hayReservaActiva = await _context.Reservas
+                .AnyAsync(r => r.InmuebleId == inmuebleId && r.FechaExpiracion > DateTime.UtcNow);
+            
+            if (hayReservaActiva)
+            {
+                TempData["MensajeError"] = "Este inmueble ya tiene una reserva activa.";
+                return RedirectToAction("Detalle", new { id = inmuebleId });
+            }
+            
+            var reserva = new Reserva
+            {
+                InmuebleId = inmuebleId,
+                UsuarioId = userId,
+                FechaCreacion = DateTime.UtcNow,
+                FechaExpiracion = DateTime.UtcNow.AddHours(48)
+            };
+
+            _context.Add(reserva);
+            await _context.SaveChangesAsync();
+
+            TempData["MensajeExito"] = "¡Inmueble reservado por 48 horas! Por favor, contacte a un asesor para continuar.";
+            return RedirectToAction("Detalle", new { id = inmuebleId });
         }
     }
 }
